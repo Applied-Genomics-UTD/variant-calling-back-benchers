@@ -12,10 +12,9 @@ nextflow.enable.dsl=2
 // Pipeline Input parameters
 
 params.outdir = 'results'
-// TODO Find the urls for these files https://github.com/sateeshperi/nextflow_varcal/tree/master/data
-params.genome = null
-params.reads = null
 
+params.genome = "/scratch/applied-genomics/nextflow_varcal/data/ref_genome/ecoli_rel606.fasta"
+params.reads = "/scratch/applied-genomics/nextflow_varcal/data/trimmed_fastq/SRR2584863_{1,2}.trim.fastq.gz"
 println """\
          V A R I A N T-C A L L I N G - N F   P I P E L I N E
          ===================================
@@ -46,7 +45,11 @@ workflow {
     BWA_INDEX( ref_ch )
     BWA_ALIGN( BWA_INDEX.out.bwa_index.combine(reads_ch) ) // https://www.nextflow.io/docs/latest/process.html#understand-how-multiple-input-channels-work
     SAMTOOLS_SORT( BWA_ALIGN.out.aligned_bam )
-    // TODO Enter the rest of the processes for variant calling based on the bash script below
+    SAMTOOLS_INDEX( SAMTOOLS_SORT.out.sorted_bam )
+    BCFTOOLS_MPILEUP(SAMTOOLS_SORT.out.sorted_bam)
+    //
+    
+
 
 }
 
@@ -62,7 +65,7 @@ workflow {
 process FASTQC {
     tag{"FASTQC ${reads}"}
     label 'process_low'
-    // TODO conda
+    conda 'fastqc'
 
     publishDir("${params.outdir}/fastqc_trim", mode: 'copy')
 
@@ -84,7 +87,8 @@ process FASTQC {
 process BWA_INDEX {
     tag{"BWA_INDEX ${genome}"}
     label 'process_low'
-    // TODO conda
+     conda    'bwa samtools'
+
 
     publishDir("${params.outdir}/bwa_index", mode: 'copy')
 
@@ -106,7 +110,7 @@ process BWA_INDEX {
 process BWA_ALIGN {
     tag{"BWA_ALIGN ${sample_id}"}
     label 'process_medium'
-    // TODO conda
+    conda 'bioconda::bwa bioconda::samtools'
 
     publishDir("${params.outdir}/bwa_align", mode: 'copy')
 
@@ -130,7 +134,7 @@ process BWA_ALIGN {
 process SAMTOOLS_SORT {
     tag{"SAMTOOLS_SORT ${sample_id}"}
     label 'process_low'
-    // TODO conda
+    conda 'bioconda::samtools'
 
     publishDir("${params.outdir}/bam_align", mode: 'copy')
 
@@ -150,28 +154,93 @@ process SAMTOOLS_SORT {
  * Index the BAM file for visualization purpose
  */
 process SAMTOOLS_INDEX {
-    // TODO
+    tag{"SAMTOOLS_INDEX ${sample_id}"}
+    label 'process_low'
+    conda 'bioconda::samtools'
+
+    publishDir("${params.outdir}/bam_align", mode: 'copy')
+
+    input:
+    tuple val( sample_id ), path( bam )
+
+    output:
+    tuple val( sample_id ), path( "${sample_id}.aligned.sorted.bam.bai" ), emit: sorted_bam_index
+
+    script:
+    """
+    samtools index ${bam}
+    """
 }
 
 /*
  * Calculate the read coverage of positions in the genome.
  */
 process BCFTOOLS_MPILEUP {
-    // TODO
+    tag{"BCFTOOLS_MPILEUP ${sample_id}"}
+    label 'process_low'
+    conda 'bioconda::samtools bioconda::bcftools'
+    publishDir("${params.outdir}/bam_align", mode: 'copy')
+
+    input:
+    tuple val( sample_id ), path( bam )
+
+    output:
+    tuple val( sample_id ), path( "${sample_id}.aligned.sorted.bam.bcf" ), emit: 
+    
+    script:
+    """
+    bcftools mpileup -O b -o ${sample_id}.aligned.sorted.bam.bcf -f ${params.genome} ${bam}
+    """
 }
 
 /*
  * Detect the single nucleotide variants (SNVs).
  */
 process BCFTOOLS_CALL {
-    // TODO
+    tag{"BCFTOOLS_CALL ${sample_id}"}
+    label 'process_low'
+    conda 'bioconda::samtools bioconda::bcftools'
+
+    
+    publishDir("${params.outdir}/bam_align", mode: 'copy')
+
+    input:
+    tuple val( sample_id ), path( bam )
+
+    output:
+    tuple val( sample_id ), path( "${sample_id}.aligned.sorted.bam" ), emit: sorted_bam
+
+
+    script:
+    """
+
+
+    bcftools call -vmO v -o ${sample_id}.aligned.sorted.bam
+   """ 
 }
 
 /*
  * Filter and report the SNVs in VCF (variant calling format).
  */
 process VCFUTILS {
-    // TODO
+    tag{"VCFUTILS ${sample_id}"}
+    label 'process_low'
+    conda 'bioconda::vcftools'
+    publishDir("${params.outdir}/bam_align", mode: 'copy')
+
+    input:
+    tuple val( sample_id ), path( vcf )
+
+    output:
+    tuple val( sample_id ), path( "${sample_id}.aligned.sorted.bam" ), emit: sorted_bam
+
+
+    script:
+    """
+    vcfutils.pl varFilter ${sample_id}.aligned.sorted.bam > ${sample_id}.aligned.sorted.bam
+    """
+    
+ 
 }
 
 /*
