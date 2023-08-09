@@ -47,6 +47,8 @@ workflow {
     SAMTOOLS_SORT( BWA_ALIGN.out.aligned_bam )
     SAMTOOLS_INDEX( SAMTOOLS_SORT.out.sorted_bam )
     BCFTOOLS_MPILEUP(SAMTOOLS_SORT.out.sorted_bam)
+    BCFTOOLS_CALL(BCFTOOLS_MPILEUP.out.bcf)
+    VCFUTILS(BCFTOOLS_CALL.out.vcf)
     //
     
 
@@ -185,7 +187,7 @@ process BCFTOOLS_MPILEUP {
     tuple val( sample_id ), path( bam )
 
     output:
-    tuple val( sample_id ), path( "${sample_id}.aligned.sorted.bam.bcf" ), emit: 
+    tuple val( sample_id ), path( "${sample_id}.aligned.sorted.bam.bcf" ), emit: bcf
     
     script:
     """
@@ -205,17 +207,17 @@ process BCFTOOLS_CALL {
     publishDir("${params.outdir}/bam_align", mode: 'copy')
 
     input:
-    tuple val( sample_id ), path( bam )
+    tuple val( sample_id ), path( bcf )
 
     output:
-    tuple val( sample_id ), path( "${sample_id}.aligned.sorted.bam" ), emit: sorted_bam
+    tuple val( sample_id ), path ("*.vcf") , emit: vcf
 
 
     script:
     """
 
 
-    bcftools call -vmO v -o ${sample_id}.aligned.sorted.bam
+    bcftools call -vmO z -o ${sample_id}.aligned.vcf ${bcf}
    """ 
 }
 
@@ -225,19 +227,19 @@ process BCFTOOLS_CALL {
 process VCFUTILS {
     tag{"VCFUTILS ${sample_id}"}
     label 'process_low'
-    conda 'bioconda::vcftools'
+    conda 'bioconda::bcftools'
     publishDir("${params.outdir}/bam_align", mode: 'copy')
 
     input:
     tuple val( sample_id ), path( vcf )
 
     output:
-    tuple val( sample_id ), path( "${sample_id}.aligned.sorted.bam" ), emit: sorted_bam
+    tuple val( sample_id ), path( "${sample_id}.aligned.vcf" ), emit: bcf
 
 
     script:
     """
-    vcfutils.pl varFilter ${sample_id}.aligned.sorted.bam > ${sample_id}.aligned.sorted.bam
+    vcfutils.pl varFilter ${sample_id}.aligned.bcf > ${sample_id}.aligned.bcf
     """
     
  
